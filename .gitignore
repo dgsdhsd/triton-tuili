@@ -1,0 +1,19 @@
+# ===== Python 虚拟环境 / 依赖库 =====
+.venv/
+vllm_env/
+
+# ===== 训练数据（大文件，不上传） =====
+project/data/ultrachat/
+
+# ===== Profiler / 日志报告 =====
+project/profiling/
+project/logs/
+*.ncu-rep
+*.nsys-rep
+*.sqlite
+*.log
+
+# ===== 缓存 / IDE =====
+__pycache__/
+*.pyc
+.vscode/

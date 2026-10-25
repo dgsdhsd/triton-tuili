@@ -1,0 +1,110 @@
+相比tutorials/06-fused-attention.py，
+1.从B,H,M,N改为M,H,N
+为什么呢？
+a.在显存跨度上没那么大，检索会快些。
+b.这里曾经思考是，是L2的驱逐问题，这里经过严格计算L2应该是
+不会跑满，在这个场景下，即便跑满，也不影响L2的局部性能力
+
+2.以前的一个误区，以为小padding，即要求矩阵转成2的倍数。
+需要在主机端进行，实际上不是，最终补齐是显存调用到共享内存时补齐0.
+具体函数为q = tl.load(q_ptr, boundary_check=(0, 1))
+
+3.tma的地址计算会是一个小难点，这里额外计算地址，需要将
+HN个数看成一行。
+
+4.最终考虑做推理，因此没有寄存m，这只有训练采用得到
+
+5.关于之前06的均衡处理，即保证每个block的计算量，他会进行专门处理（也不一定，可能有）
+但在这个场景下不会有，由于一个block只要运行完，就直接下一个block，block的运行次序可能是随机的。
+
+6.这里额外实现了GQA功能，具有更好的扩展性。
+这里的核心难点在于索引的计算，以保证索引计算的正确性。
+其他误区：
+MOE和grouped flashattention并没有直接关系，只能说tutorials/08-grouped-gemm.py是
+MOE的核心算法，一般是先经过flashattention层，再经过MOE层，MOE可以看成MLP层的进化。
+
+还有一个误区，以为MOE也要进行group专门修改，实际不需要，因为MLP是token独立的。
+
+
+
+1.为防止各类型的问题，不能直接使用-inf，
+2.tma的描述符不可被复制
+3.tma的描述符只能按指定stride行进
+4.tma无法支持while循环
+5.无法支持break操作
+
+先理解 SSA：“一个变量只能赋值一次”到底是什么意思，字面意思，就是一个变量只会被赋值一次。
+这一点看起来很重要，但似乎并不重要，因为编译器的事情很难被外界所感知。
+
+tutorials/08-grouped-gemm.py
+这里做了一个限制，MNK是64的倍数，每个block会依次挑选一个block进行运算。
+
+1.和tutorials/08-grouped-gemm.py的对比
+我看了一下，tutorials/08-grouped-gemm.py支持不定长，应该也支持持久化。
+
+
+
+采取的方式是，是每个block拿到每个group的每个运行处理的block，然后运行，这里可能会出现负载不均的情况（但这是能解决的，类似于swizzle的方式），这里可能运行快的block可能会导致L2的压力激增，互抢。
+
+这种方式很适合那种每个block的运算都差不多的情况，以避免负载不均和L2的争抢。
+
+
+原子计数器动态分配路线(Atomic Work-Stealing / On-Chip Scheduler)
+我的方式，采取每个block读取唯一的task_id，该task_id和总数进行对比，若没大于总数，便挑选和task_id所对应的block进行运算。我的坏处在于，由于无法直接利用while，必须采用    for _ in range(total_tasks):
+
+        if task_id < total_tasks:的方式进行克服，缺点必然导致sm的空转，那我在空转的性能损耗很大吗（损耗不大）？还有便是代码会比较丑陋。 
+
+2.和查表/元数据驱动路线(Offset-Metadata / Flat-Tile Schedule)的差异，代表为vLLM，SGLang
+本质差异在于是否可以持久化，一个tile是否会推出。
+他的方案是提前计算出tile总数，然后开启相对应的grid数量，每个block运行自己所需要的tile。
+
+
+优化过程：
+1.ragged_attn_first.ncu-rep为初版，整体计算和存储效率都不是很高，
+2.删除_attn_fwd_inner的# if curr_n < end_n:，变为ragged_attn_second.ncu-rep，提升约16.7%
+
+
+################################################################################################################
+关于vllm接入模型。
+这里列举以下的困难。
+1.整体框架复杂度明显上升，导致模块之间的耦合性大大提升。
+2.AI不够智能，很多时候并不能给到自己足够的帮助。只能自己一点点细扣
+因为本次主要做的就是适配vllm，因此不想讲太多技术上的实现。
+vllm_demo/run_self_llm.py上的：
+1.这里遇到的坑，设置其实一点都不少，
+自定义注册，禁用FLASHINFER_SAMPLER，启用pinned memory
+
+load_format="dummy",  他要加载dummy，如何进行处理的，如何适配他的自动分配。
+这里的eos为null，也就导致没有触碰到max_model_len会一直运行下去。
+通过hf_config = vllm_config.model_config.hf_config
+        self.vocab_size = getattr(hf_config, "vocab_size", 151936)
+        获取config.json内的内容
+
+    vLLM 调用约定：
+      - SelfLLM(vllm_config=..., prefix=...)           keyword-only
+      - embed_input_ids(input_ids)
+      - forward(input_ids, positions, intermediate_tensors=None, inputs_embeds=None)
+      - compute_logits(hidden_states)
+      - load_weights(weights) -> set[str]
+    """
+layer_name: str = "layers.0.self_attn"这是必传选项，且里面必须包含数字。
+FlashAttentionWrapper必须继承Attention，且必须包含
+        super().__init__(
+            num_heads=num_heads,
+            head_size=head_dim,
+            scale=1.0 / math.sqrt(head_dim),
+            num_kv_heads=num_kv_heads,
+            prefix=layer_name,
+        )
+
+通过        fc = get_forward_context()
+        attn_metadata = fc.attn_metadata
+        # profile_run（determine_available_memory 的 dummy run）以 skip_attn=True 执行，
+        # 此时不构建 attention metadata、也尚未 bind KV cache，直接透传占位。
+        if attn_metadata is None:
+            return query
+        meta = attn_metadata[self.layer_name]
+获取相关kv参数
+
+
+

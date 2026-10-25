@@ -1,0 +1,11 @@
+{
+    "d_model": 512,
+    "num_heads": 8,
+    "num_kv_heads": 2,
+    "head_dim": 64,
+    "num_experts": 8,
+    "top_k": 2,
+    "d_ffn": 1024,
+    "vocab_full": 151936,
+    "fold_ratio": 10
+}

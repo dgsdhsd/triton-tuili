@@ -1,0 +1,14 @@
+source ./.venv/bin/activate
+deactivate
+python3 MOE-LLM.py
+ python3 MOE-LLM.py > run_output.log 2>&1
+
+
+cd /home/xkem/cuda_triton && ncu \
+  -f \
+  --kernel-name regex:_ragged_attn_fwd_kernel_persistent \
+  --set full \
+  -o /home/xkem/cuda_triton/project/ragged_attn \
+  .venv/bin/python project/MOE-LLM.py
+
+cd /home/xkem/cuda_triton && rm -f project/moe_llm_timeline.json && .venv/bin/python project/profile_timeline.py

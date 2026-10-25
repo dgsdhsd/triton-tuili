@@ -1,0 +1,69 @@
+上传文件说明
+==========================================
+仓库：https://github.com/dgsdhsd/triton-tuili
+分支：main
+日期：2026-10-25（更新版）
+
+本仓库从本地目录 /home/xkem/cuda_triton 的最新工作区快照上传。
+上传内容以本人编写的代码与 txt 笔记为主，并包含 Triton 教程与模型权重；
+排除了虚拟环境、训练数据、profiler 报告、日志等。
+
+----------------------------------------------------------
+一、已上传内容
+----------------------------------------------------------
+1. project/
+   models/     MOE-LLM.py / MOE-LLM2.py / SELF-LLM.py /
+               fused-attention-MOE.py / ref_inference_llm.py /
+               vllm_interface_test.py / vllm_interface_test2.py /
+               _moe_validate.py / _paged_attn_decode_validate.py /
+               _ragged_attn_validate.py / _self_llm_smoke_test.py
+   benchmarks/ benchmark_batched_vs_loop.py / benchmark_ragged_vs_dense.py /
+               benchmark_vs_pytorch_native.py / benchmark_vs_pytorch_native_my_moe.py
+   tools/      parameter_generation.py / profile_timeline.py /
+               verify_flash_attn.py / run_nsys_new.sh
+   data/parameter/  model_weights.pt（模型权重，约 47MB）/
+                    model_config.json
+   self_llm_pipeline.py
+   docs/常见命令
+   （project/MOE-LLM.py、project/run_nsys_new.sh 为符号链接）
+
+2. tutorials/        Triton 官方教程（01-11）与 gluon 教程（01-14），
+                     含 README.rst、requirements.txt、conftest.py
+
+3. deepseek_deploy/  README.md / check_config.py / env.sh / serve.sh /
+                     serve_single.sh / test_api.py / test_curl.sh /
+                     docs/tp_ep_source_map.md / model/config.json
+
+4. vllm_demo/        vllm_demo.py / run_self_llm.py / run.sh /
+                     models/self-llm/config.json /
+                     models/self-llm/configuration_self_llm.py
+
+5. nccl/             Initialization_simple.cpp / Initialization_vary.cpp
+
+6. copy/             MOE-LLM.txt / 测试1.txt
+
+7. 整体评价.txt
+
+----------------------------------------------------------
+二、未上传（已排除）的内容及原因
+----------------------------------------------------------
+1. .venv/、vllm_env/       Python 虚拟环境/依赖库（合计约 15GB）
+2. project/data/ultrachat/ 训练数据 parquet（约 244MB）
+3. project/profiling/      nsys/ncu 报告、sqlite、timeline.json 等
+4. project/logs/           运行日志（error_log.txt、run_output.log 等）
+5. __pycache__/、*.pyc、.vscode/、.git/   缓存与 IDE 配置
+
+----------------------------------------------------------
+三、操作步骤
+----------------------------------------------------------
+1. 用 rsync 从本地工作区复制最新文件到临时目录，同时排除第二类内容；
+2. 在临时目录写入本 .gitignore；
+3. git init 并做一次单提交（只含最新快照，不带历史）；
+4. 通过 SSH 推送到 GitHub 的 main 分支。
+
+----------------------------------------------------------
+四、备注
+----------------------------------------------------------
+- 本地 /home/xkem/cuda_triton/.git 未被改动，原提交历史完整保留。
+- model_weights.pt 约 47MB，GitHub 单文件上限 100MB，可直接推送。
+- 如后续想补充 project/logs/ 中的某个文件，可重新生成快照再推送。
